@@ -1,5 +1,4 @@
 import { Message } from '@/models'
-import { createParser, ParsedEvent, ReconnectInterval } from 'eventsource-parser'
 
 export const config = {
   runtime: 'edge'
@@ -24,32 +23,13 @@ const handler = async (req: Request): Promise<Response> => {
       messagesToSend.push(message)
     }
 
-    const useAzureOpenAI =
-      process.env.AZURE_OPENAI_API_BASE_URL && process.env.AZURE_OPENAI_API_BASE_URL.length > 0
-
     let apiUrl: string
-    let apiKey: string
-    let model: string
-    if (useAzureOpenAI) {
-      let apiBaseUrl = process.env.AZURE_OPENAI_API_BASE_URL
-      const version = '2023-05-15'
-      const deployment = process.env.AZURE_OPENAI_DEPLOYMENT || ''
+    let apiBaseUrl = process.env.CHATBOT_API_BASE_URL
       if (apiBaseUrl && apiBaseUrl.endsWith('/')) {
         apiBaseUrl = apiBaseUrl.slice(0, -1)
       }
-      apiUrl = `${apiBaseUrl}/openai/deployments/${deployment}/chat/completions?api-version=${version}`
-      apiKey = process.env.AZURE_OPENAI_API_KEY || ''
-      model = '' // Azure Open AI always ignores the model and decides based on the deployment name passed through.
-    } else {
-      let apiBaseUrl = process.env.OPENAI_API_BASE_URL || 'https://api.openai.com'
-      if (apiBaseUrl && apiBaseUrl.endsWith('/')) {
-        apiBaseUrl = apiBaseUrl.slice(0, -1)
-      }
-      apiUrl = `${apiBaseUrl}/v1/chat/completions`
-      apiKey = process.env.OPENAI_API_KEY || ''
-      model = 'gpt-3.5-turbo' // todo: allow this to be passed through from client and support gpt-4
-    }
-    const stream = await OpenAIStream(apiUrl, apiKey, model, messagesToSend)
+      apiUrl = `${apiBaseUrl}` 
+    const stream = await ChatbotStream(apiUrl, messagesToSend)
 
     return new Response(stream)
   } catch (error) {
@@ -58,70 +38,58 @@ const handler = async (req: Request): Promise<Response> => {
   }
 }
 
-const OpenAIStream = async (apiUrl: string, apiKey: string, model: string, messages: Message[]) => {
+const ChatbotStream = async (apiUrl: string, messages: Message[]) => {
   const encoder = new TextEncoder()
-  const decoder = new TextDecoder()
   const res = await fetch(apiUrl, {
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
-      'api-key': `${apiKey}`
     },
     method: 'POST',
     body: JSON.stringify({
-      model: model,
-      frequency_penalty: 0,
-      max_tokens: 4000,
-      messages: [
-        {
-          role: 'system',
-          content: `You are an AI assistant that helps people find information.`
-        },
-        ...messages
-      ],
-      presence_penalty: 0,
-      stream: true,
-      temperature: 0.7,
-      top_p: 0.95
+      messages: messages
     })
   })
-
+  console.log(messages);
   if (res.status !== 200) {
     const statusText = res.statusText
     throw new Error(
-      `The OpenAI API has encountered an error with a status code of ${res.status} and message ${statusText}`
+      `The Chatbot API has encountered an error with a status code of ${res.status} and message ${statusText}`
     )
   }
 
   return new ReadableStream({
     async start(controller) {
-      const onParse = (event: ParsedEvent | ReconnectInterval) => {
-        if (event.type === 'event') {
-          const data = event.data
-
-          if (data === '[DONE]') {
-            controller.close()
-            return
-          }
-
-          try {
-            const json = JSON.parse(data)
-            const text = json.choices[0].delta.content
-            const queue = encoder.encode(text)
-            controller.enqueue(queue)
-          } catch (e) {
-            controller.error(e)
-          }
+      try {
+        const response = await fetch(apiUrl);
+  
+        if (!response.ok) {
+          throw new Error(`Failed to fetch content from Flask app: ${response.statusText}`);
         }
-      }
+  
+        // Read the response content
+        const content = await response.text();
 
-      const parser = createParser(onParse)
+        // Encode the custom reply if necessary
+        const content_formatted = content.replace('\n', ' ');
+        const string_sliced = content_formatted.slice(1, -2);
+        // console.log(string_sliced)
+        const encodedReply = encoder.encode(string_sliced);
 
-      for await (const chunk of res.body as any) {
-        const str = decoder.decode(chunk).replace('[DONE]\n', '[DONE]\n\n')
-        parser.feed(str)
-      }
+        // Enqueue the custom reply
+        controller.enqueue(encodedReply);
+        // Signal the end of the stream
+        controller.close();
+
+      } catch (error) {
+        console.error(error);
+        // You can handle errors here if needed
+        return new ReadableStream({
+          start(controller) {
+            controller.error(error);
+        }
+        });
+        }
     }
-  })
+  });
 }
 export default handler
