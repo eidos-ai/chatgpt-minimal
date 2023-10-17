@@ -47,7 +47,8 @@ const handler = async (req: Request): Promise<Response> => {
       }
       apiUrl = `${apiBaseUrl}` // `${apiBaseUrl}/v1/chat/completions`
       apiKey = process.env.OPENAI_API_KEY || ''
-      model = 'gpt-3.5-turbo' // todo: allow this to be passed through from client and support gpt-4
+      // model = 'gpt-3.5-turbo' // todo: allow this to be passed through from client and support gpt-4
+      model = 'gpt-4' // todo: allow this to be passed through from client and support gpt-4
     }
     const stream = await OpenAIStream(apiUrl, apiKey, model, messagesToSend)
 
@@ -98,10 +99,8 @@ const OpenAIStream = async (apiUrl: string, apiKey: string, model: string, messa
   return new ReadableStream({
     async start(controller) {
       const onParse = (event: ParsedEvent | ReconnectInterval) => {
-        console.log("hello")
         if (event.type === 'event') {
           const data = event.data
-
           if (data === '[DONE]') {
             controller.close()
             return
@@ -112,7 +111,6 @@ const OpenAIStream = async (apiUrl: string, apiKey: string, model: string, messa
             // const text = json.choices[0].delta.content
             const text = data
             const queue = encoder.encode(text)
-            console.log("hola"+text)
             controller.enqueue(queue)
           } catch (e) {
             console.log(e)
@@ -126,7 +124,7 @@ const OpenAIStream = async (apiUrl: string, apiKey: string, model: string, messa
       for await (const chunk of res.body as any) {
         const str = decoder.decode(chunk).replace('[DONE]\n', '[DONE]\n\n')
         parser.feed(str)
-        console.log(str)
+        // console.log(str)
       }
     }
   })
