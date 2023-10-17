@@ -37,7 +37,6 @@ const requestMessage = async (
   if (!data) {
     throw new Error('No data')
   }
-  console.log("request message return")
   return data.getReader()
 }
 
