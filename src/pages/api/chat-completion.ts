@@ -45,9 +45,10 @@ const handler = async (req: Request): Promise<Response> => {
       if (apiBaseUrl && apiBaseUrl.endsWith('/')) {
         apiBaseUrl = apiBaseUrl.slice(0, -1)
       }
-      apiUrl = `${apiBaseUrl}/v1/chat/completions`
+      apiUrl = `${apiBaseUrl}` // `${apiBaseUrl}/v1/chat/completions`
       apiKey = process.env.OPENAI_API_KEY || ''
-      model = 'gpt-3.5-turbo' // todo: allow this to be passed through from client and support gpt-4
+      // model = 'gpt-3.5-turbo' // todo: allow this to be passed through from client and support gpt-4
+      model = 'gpt-4' // todo: allow this to be passed through from client and support gpt-4
     }
     const stream = await OpenAIStream(apiUrl, apiKey, model, messagesToSend)
 
@@ -61,6 +62,7 @@ const handler = async (req: Request): Promise<Response> => {
 const OpenAIStream = async (apiUrl: string, apiKey: string, model: string, messages: Message[]) => {
   const encoder = new TextEncoder()
   const decoder = new TextDecoder()
+  // console.log(apiUrl)
   const res = await fetch(apiUrl, {
     headers: {
       'Content-Type': 'application/json',
@@ -81,10 +83,11 @@ const OpenAIStream = async (apiUrl: string, apiKey: string, model: string, messa
       ],
       presence_penalty: 0,
       stream: true,
-      temperature: 0.7,
+      temperature: 0,
       top_p: 0.95
     })
   })
+  // console.log(messages)
 
   if (res.status !== 200) {
     const statusText = res.statusText
@@ -98,18 +101,19 @@ const OpenAIStream = async (apiUrl: string, apiKey: string, model: string, messa
       const onParse = (event: ParsedEvent | ReconnectInterval) => {
         if (event.type === 'event') {
           const data = event.data
-
           if (data === '[DONE]') {
             controller.close()
             return
           }
 
           try {
-            const json = JSON.parse(data)
-            const text = json.choices[0].delta.content
+            // const json = JSON.parse(data)
+            // const text = json.choices[0].delta.content
+            const text = data
             const queue = encoder.encode(text)
             controller.enqueue(queue)
           } catch (e) {
+            console.log(e)
             controller.error(e)
           }
         }
@@ -120,6 +124,7 @@ const OpenAIStream = async (apiUrl: string, apiKey: string, model: string, messa
       for await (const chunk of res.body as any) {
         const str = decoder.decode(chunk).replace('[DONE]\n', '[DONE]\n\n')
         parser.feed(str)
+        // console.log(str)
       }
     }
   })
